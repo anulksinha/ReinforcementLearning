@@ -48,22 +48,25 @@ epsilon = 0.3
 
 alpha = 0.01
 gamma = 0.9/alpha
-episode = 4000
+episode = 1000
 
 buff_size = 100
 # Initial Funds in cents
-Ini_value = 100000
+Ini_value = 1000
 max_value = 1000
+
 # wrong action penalty
 wrong_action = max_value/100
 # Maze
+# Maze Creator activation
+advmode = True
 # maze size : m*n
 maze_size = [5,5]
 maze = np.random.randint(max_value/2,size=(maze_size[0],maze_size[1])).astype('float')+1500.0
 #maze = 1000 - maze
 Game_termination = False
 #Action_set = np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
-Action_set = np.zeros(((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))+1
+Action_set = np.zeros(((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1])).astype('float')+1.0
 #print(Action_set)
 #print(Action_set[:,:,9])
 
@@ -80,7 +83,7 @@ Goal_set = np.zeros((maze_size[0],maze_size[1]))
 # Player location
 Player_data = np.zeros((maze_size[0],maze_size[1]))
 Player_pos = [random.randint(0,maze_size[0]-1),random.randint(0,maze_size[1]-1)]
-Player_data[Player_pos[0],Player_pos[1]] = 1
+Player_data[Player_pos[0],Player_pos[1]] = 1.0
 # Reward Information
 Reward_data = np.zeros((maze_size[0],maze_size[1])).astype('float')
 Safe = False
@@ -125,9 +128,10 @@ print('Solver Model S Created')
 #####################################################################################################################
 # Creator
 creator_insize = maze.size
+#print(creator_insize)
 maze_creator = Sequential()
-maze_creator.add(Dense(creator_insize, activation='relu', input_dim=input_size))
-maze_creator.add(Dense(creator_insize, activation='relu'))
+maze_creator.add(Dense(2*creator_insize, activation='relu', input_dim=creator_insize))
+maze_creator.add(Dense(2*creator_insize, activation='relu'))
 maze_creator.add(Dense(creator_insize, activation='relu'))
 maze_creator.compile(optimizer='rmsprop',
               loss='mse',
@@ -151,6 +155,8 @@ counter = 0
 scount = 0
 Game_termination = False
 sfc = 0
+mazin = []
+mazout = []
 sol = []
 sel = []
 inp_sol = []
@@ -171,6 +177,7 @@ safe = True
 treasure_gain = np.zeros((maze_size[0],maze_size[1]))
 treasure_sold = np.zeros((maze_size[0],maze_size[1]))
 time_flag = True
+
 while  not Game_termination:
     counter += 1
     #print('g')
@@ -363,7 +370,7 @@ while  not Game_termination:
                     logfile.write(str(Reward_data))
                 #############################################################################################################    
                 # Seller
-                # experience replay one experience
+                # experience replay
                 targets = maze_solver_s.predict(sell_input).flatten()
                 #print(targets)
                 # Next state
@@ -379,7 +386,7 @@ while  not Game_termination:
                 #print(out1[0][pos1])
                 # Accounting for future reward
                 #print(spos)
-                targets[spos] = alpha*(Total_Reward-Reward_history[-1] + (gamma*sout1[0][spos1]))
+                targets[spos] += alpha*(Total_Reward-Reward_history[-1] + (gamma*sout1[0][spos1]))
                 tag_sell.append(targets.flatten())
                 sel.append([sell_input,targets])
                 #print(inp_sol,tag_sol)
@@ -389,8 +396,25 @@ while  not Game_termination:
                     maze_solver_s.fit(np.asarray(inp_sell).reshape((-1,inputs_size)),\
                                       np.asarray(tag_sell).reshape((-1,outputs_size)),epochs=20)
                     #Action_set = 1-Action_set                
+                #############################################################################################################
+                #############################################################################################################
+                # Creator
+                if advmode:
+                    if pos != output_size-1:
+                        #print(maze.flatten().reshape((1,-1)))
+                        ctg = maze_creator.predict(maze.flatten().reshape((1,-1))).flatten()
+                        ctg1 = maze_creator.predict(ctg.flatten().reshape((1,-1))).flatten()
+                        ctg[pos] -=  alpha*(-Total_Reward+Reward_history[-1] + (gamma*ctg1[np.argmin(ctg1)]))
+                        ctg[spos] -= alpha*(Total_Reward-Reward_history[-1] + (gamma*ctg1[np.argmax(ctg1)]))
+                        mazin.append(maze.flatten().reshape((1,-1)))
+                        mazout.append(ctg.flatten().reshape((1,-1)))
 
-
+                        if counter > 2:
+                            maze_creator.fit(np.asarray(mazin).reshape((-1,creator_insize)),\
+                                          np.asarray(mazout).reshape((-1,creator_insize)),epochs=20)
+                    maze = maze_creator.predict(maze.flatten().reshape((1,-1))).flatten().reshape((maze_size[0],maze_size[1]))
+                    maze += np.random.randint(max_value/10,size=(maze_size[0],maze_size[1])).astype('float')
+                #############################################################################################################
             Reward_data[Player_pos[0],Player_pos[1]] += 1
             treasure_gain[Player_pos[0],Player_pos[1]] += 1    
             Total_Reward = np.sum(Reward_data*maze) + cash
@@ -425,7 +449,7 @@ while  not Game_termination:
             pos1 = out_id1[0][0]
         #print(out1[0][pos1])
         # Accounting for future reward
-        target[pos] = alpha*(-Total_Reward+Reward_history[-1] + (gamma*out1[0][pos1]))
+        target[pos] += alpha*(-Total_Reward+Reward_history[-1] + (gamma*out1[0][pos1]))
         tag_sol.append(target.flatten())
         sol.append([solver_input,target])
         #print('target')
@@ -444,26 +468,26 @@ while  not Game_termination:
     mk = np.random.rand()
     #print('m')
     # Maze Creator
-    
-    if mk <= 0.5:
-        market.append(-1)
-        np.random.seed(counter*100)
-        maze = np.random.randint(max_value/2,size=(maze_size[0],maze_size[1]))+1500
-        #Action_set = np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
-    
-    elif mk >= 0.9:
-        market.append(1)
-        np.random.seed(counter*100)
-        maze = max_value - np.random.randint(max_value,size=(maze_size[0],maze_size[1]))+1510
-        #maze_creator.predict(maze.reshape(1,creator_insize))
-        #Action_set = 1-np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
-    
-    else:
-        market.append(0)
-        np.random.seed(counter*100)
-        maze = np.random.randint(max_value,size=(maze_size[0],maze_size[1]))+1490
-        #maze_creator.predict(maze.reshape(1,creator_insize))
-        #Action_set = 1-np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
+    if not advmode:
+        if mk <= 0.5:
+            market.append(-1)
+            np.random.seed(counter*100)
+            maze = np.random.randint(max_value/2,size=(maze_size[0],maze_size[1]))+1500
+            #Action_set = np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
+
+        elif mk >= 0.9:
+            market.append(1)
+            np.random.seed(counter*100)
+            maze = max_value - np.random.randint(max_value,size=(maze_size[0],maze_size[1]))+1510
+            #maze_creator.predict(maze.reshape(1,creator_insize))
+            #Action_set = 1-np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
+
+        else:
+            market.append(0)
+            np.random.seed(counter*100)
+            maze = np.random.randint(max_value,size=(maze_size[0],maze_size[1]))+1490
+            #maze_creator.predict(maze.reshape(1,creator_insize))
+            #Action_set = 1-np.random.randint(2,size=((maze_size[0]*maze_size[1])+1,maze_size[0],maze_size[1]))
     #print('Input')
     #print(len(inp_sol))
     #print('Target')
@@ -478,6 +502,9 @@ while  not Game_termination:
     if len(tag_sell)>buff_size:
         del inp_sell[0]
         del tag_sell[0]
+    if len(mazin)>buff_size:
+        del mazin[0]
+        del mazout[0]
     #if len(sol)>buff_size:
     #    del sol[0]
     #if len(sel)>buff_size:
