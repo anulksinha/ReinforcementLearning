@@ -37,7 +37,7 @@ from keras.layers import Dense, Dropout, Activation
 from keras.optimizers import SGD
 from keras.layers import LSTM
 from keras.utils import plot_model
-
+from keras import backend as K
 
 #####################################################################################################################
 # Initialization
@@ -48,7 +48,7 @@ epsilon = 0.3
 
 alpha = 0.01
 gamma = 0.9/alpha
-episode = 1000
+episode = 4000
 
 buff_size = 100
 # Initial Funds in cents
@@ -129,10 +129,15 @@ print('Solver Model S Created')
 # Creator
 creator_insize = maze.size
 #print(creator_insize)
+#relu_cut = Activation.relu(max_value = max_value)
+def create_relu_advanced(max_value=1.):        
+    def relu_advanced(x):
+        return K.relu(x, max_value=K.cast_to_floatx(max_value))
+    return relu_advanced
 maze_creator = Sequential()
 maze_creator.add(Dense(2*creator_insize, activation='relu', input_dim=creator_insize))
 maze_creator.add(Dense(2*creator_insize, activation='relu'))
-maze_creator.add(Dense(creator_insize, activation='relu'))
+maze_creator.add(Dense(creator_insize, activation=create_relu_advanced(max_value=max_value)))
 maze_creator.compile(optimizer='rmsprop',
               loss='mse',
               metrics=['accuracy'])
@@ -140,6 +145,7 @@ print('Maze Creator Model Created')
 #####################################################################################################################
 # Connector
 connector_insize = Action_set.size
+
 maze_connector = Sequential()
 maze_connector.add(LSTM(creator_insize, return_sequences = True, input_shape=(connector_insize,1)))
 maze_connector.add(LSTM(creator_insize, return_sequences = True))
@@ -404,8 +410,8 @@ while  not Game_termination:
                         #print(maze.flatten().reshape((1,-1)))
                         ctg = maze_creator.predict(maze.flatten().reshape((1,-1))).flatten()
                         ctg1 = maze_creator.predict(ctg.flatten().reshape((1,-1))).flatten()
-                        ctg[pos] -=  alpha*(-Total_Reward+Reward_history[-1] + (gamma*ctg1[np.argmin(ctg1)]))
-                        ctg[spos] -= alpha*(Total_Reward-Reward_history[-1] + (gamma*ctg1[np.argmax(ctg1)]))
+                        ctg[pos] -=  alpha*(abs(-Total_Reward+Reward_history[-1]) + (gamma*ctg1[np.argmin(ctg1)]))
+                        ctg[spos] += alpha*(abs(Total_Reward-Reward_history[-1]) + (gamma*ctg1[np.argmax(ctg1)]))
                         mazin.append(maze.flatten().reshape((1,-1)))
                         mazout.append(ctg.flatten().reshape((1,-1)))
 
